@@ -10,6 +10,8 @@
 
 CustomItems is a shared LabAPI helper library for SCP: Secret Laboratory item plugins. It is not a standalone LabAPI plugin: it does not register commands, create config files, show player text, or run by itself. Item plugins reference this DLL to reuse common custom-item mechanics instead of copying the same tracking and held-model code into every plugin.
 
+`ServerKeybinds.dll` is a hard runtime dependency. Any custom-item plugin that needs Server-Specific Settings or keybinds must register them through that shared registry; it must not mutate the game's global settings array directly.
+
 ### What It Provides
 
 - `ItemRegistry<TKind>`: a lightweight serial-number registry that maps vanilla item or pickup serials to a plugin-owned enum. Use it to answer "is this vanilla item one of my custom items?" inside item, pickup, damage, and use-event handlers.
@@ -117,6 +119,8 @@ CustomItems has no Remote Admin commands, player-console commands, Server-Specif
 ## Chinese
 
 CustomItems 是一个用于 SCP: Secret Laboratory 物品插件的共享 LabAPI 辅助库。它不是独立的 LabAPI 插件：不会注册命令、不会生成配置文件、不会显示玩家文本，也不会单独运行。物品插件引用这个 DLL，用来复用常见的自定义物品追踪和手持模型逻辑，避免每个插件都复制一份实现。
+
+`ServerKeybinds.dll` 是硬性运行时依赖。任何需要服务器专属设置或按键绑定的自定义物品插件都必须通过该共享注册表进行注册，不得直接修改游戏的全局设置数组。
 
 ### 提供的功能
 
