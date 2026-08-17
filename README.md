@@ -16,7 +16,7 @@ CustomItems is a shared LabAPI helper library for SCP: Secret Laboratory item pl
 
 - `ItemRegistry<TKind>`: a lightweight serial-number registry that maps vanilla item or pickup serials to a plugin-owned enum. Use it to answer "is this vanilla item one of my custom items?" inside item, pickup, damage, and use-event handlers.
 - `HeldMeshManager`: lifecycle management for camera-tracked first-person custom meshes. It can show a mesh over the native viewmodel or hide the native viewmodel and replace it.
-- `HeldMeshSpec`, `HeldLightSpec`, and `MeshPrimitive`: neutral data objects for describing AdminToy primitive meshes and optional pulsing core lights.
+- `HeldMeshSpec`, `HeldLightSpec`, and `MeshPrimitive`: neutral data objects for describing AdminToy primitive meshes and optional pulsing core lights. A `MeshPrimitive` may name another primitive as its `ParentName`, which spawns it as a CHILD of that primitive with its authored local pose. That is what makes SHEAR RIGS possible: an exact parallelogram needs a non-uniformly scaled (usually invisible) parent plus a rotated child, which no single AdminToy can express, because pos+rot+scale composes to R*S and never shear. Parented primitives are left out of the mesh-centre bounding box, since their coordinates are in the parent's frame.
 - `HeldVisualMode`: the display mode for held meshes: `None`, `Overlay`, or `HideAndReplace`.
 - `HeldMeshVisual`: the low-level spawned visual implementation. Most plugins should use `HeldMeshManager` rather than constructing this directly.
 
@@ -126,7 +126,7 @@ CustomItems 是一个用于 SCP: Secret Laboratory 物品插件的共享 LabAPI 
 
 - `ItemRegistry<TKind>`：轻量序列号注册表，把原版物品或拾取物的 serial 映射到插件自己的枚举。可在物品、拾取、伤害、使用等事件中判断“这个原版物品是不是我的自定义物品”。
 - `HeldMeshManager`：管理跟随摄像机的第一人称自定义手持网格生命周期。可以把模型叠加在原版手持模型上，也可以隐藏原版手持模型并替换成自定义模型。
-- `HeldMeshSpec`、`HeldLightSpec`、`MeshPrimitive`：用于描述 AdminToy primitive 网格和可选脉冲核心光源的中立数据对象。
+- `HeldMeshSpec`、`HeldLightSpec`、`MeshPrimitive`：用于描述 AdminToy primitive 网格和可选脉冲核心光源的中立数据对象。`MeshPrimitive` 可通过 `ParentName` 指定同一网格中的另一个图元作为父级，从而以其原始局部姿态作为子对象生成。这正是**剪切装配**得以实现的前提：精确的平行四边形需要一个非等比缩放的（通常不可见的）父级加一个旋转的子级，而单个 AdminToy 无法表达——位置+旋转+缩放只能合成 R*S，永远不含剪切。带父级的图元不会参与网格包围盒中心的计算，因为其坐标位于父级坐标系中。
 - `HeldVisualMode`：手持模型显示模式：`None`、`Overlay`、`HideAndReplace`。
 - `HeldMeshVisual`：底层已生成视觉对象实现。大多数插件应使用 `HeldMeshManager`，不要直接构造它。
 

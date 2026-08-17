@@ -65,6 +65,12 @@ public sealed class HeldMeshVisual
         // Centre the mesh on its bounding box so the camera offset positions the device's middle.
         Vector3 meshCenter = ComputeMeshCenter();
 
+        // Two passes so shear rigs work: a primitive naming a ParentName is spawned UNDER that
+        // primitive's transform, with its authored local pose (no mesh-centre offset — that only
+        // applies to mesh-root children). Pending children are re-swept until a pass resolves nothing,
+        // which supports arbitrary nesting depth and simply drops an unresolvable parent reference.
+        Dictionary<string, Transform> spawnedByName = new(StringComparer.OrdinalIgnoreCase);
+        List<MeshPrimitive> pending = new();
         foreach (MeshPrimitive primitive in _spec.Primitives)
         {
             if (IsDestroyed)
@@ -77,24 +83,38 @@ public sealed class HeldMeshVisual
                 continue;
             }
 
-            try
+            if (!string.IsNullOrEmpty(primitive.ParentName))
             {
-                PrimitiveObjectToy toy = PrimitiveObjectToy.Create(
-                    primitive.Position - meshCenter,
-                    Quaternion.Euler(primitive.Rotation),
-                    primitive.Scale,
-                    _root!.Transform,
-                    networkSpawn: false);
-                toy.Type = primitive.Type;
-                toy.Flags = primitive.Flags;
-                toy.Color = primitive.Color;
-                toy.IsStatic = true;
-                toy.Spawn();
-                _toys.Add(toy);
+                pending.Add(primitive);
+                continue;
             }
-            catch (Exception exception)
+
+            SpawnMeshPrimitive(primitive, primitive.Position - meshCenter, _root!.Transform, spawnedByName);
+        }
+
+        while (pending.Count > 0 && !IsDestroyed)
+        {
+            int before = pending.Count;
+            for (int i = pending.Count - 1; i >= 0; i--)
             {
-                Logger.Warn($"[CustomItems:HeldMesh] Primitive failed: {exception.GetBaseException().Message}");
+                MeshPrimitive child = pending[i];
+                if (!spawnedByName.TryGetValue(child.ParentName!, out Transform parent))
+                {
+                    continue;
+                }
+
+                pending.RemoveAt(i);
+                SpawnMeshPrimitive(child, child.Position, parent, spawnedByName);
+            }
+
+            if (pending.Count == before)
+            {
+                foreach (MeshPrimitive orphan in pending)
+                {
+                    Logger.Warn($"[CustomItems:HeldMesh] '{orphan.Name}' names missing parent '{orphan.ParentName}'; skipped.");
+                }
+
+                break;
             }
         }
 
@@ -105,6 +125,39 @@ public sealed class HeldMeshVisual
 
         _animate = Timing.RunCoroutine(Animate());
         return true;
+    }
+
+    /// <summary>Spawns one mesh primitive under <paramref name="parent"/> and records it by name so later
+    /// primitives can parent to it. Children stay static: only the single root replicates movement.</summary>
+    private void SpawnMeshPrimitive(
+        MeshPrimitive primitive,
+        Vector3 localPosition,
+        Transform parent,
+        Dictionary<string, Transform> spawnedByName)
+    {
+        try
+        {
+            PrimitiveObjectToy toy = PrimitiveObjectToy.Create(
+                localPosition,
+                Quaternion.Euler(primitive.Rotation),
+                primitive.Scale,
+                parent,
+                networkSpawn: false);
+            toy.Type = primitive.Type;
+            toy.Flags = primitive.Flags;
+            toy.Color = primitive.Color;
+            toy.IsStatic = true;
+            toy.Spawn();
+            _toys.Add(toy);
+            if (!string.IsNullOrEmpty(primitive.Name))
+            {
+                spawnedByName[primitive.Name] = toy.Transform;
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.Warn($"[CustomItems:HeldMesh] Primitive failed: {exception.GetBaseException().Message}");
+        }
     }
 
     private void SpawnLight(HeldLightSpec lightSpec, Vector3 meshCenter)
@@ -150,7 +203,9 @@ public sealed class HeldMeshVisual
         Vector3 max = Vector3.negativeInfinity;
         foreach (MeshPrimitive primitive in _spec.Primitives)
         {
-            if (primitive.IsMarker)
+            // Parented primitives are authored in their parent's frame, so their coordinates say
+            // nothing about mesh-space extent — the parent they sit inside already contributes it.
+            if (primitive.IsMarker || !string.IsNullOrEmpty(primitive.ParentName))
             {
                 continue;
             }
