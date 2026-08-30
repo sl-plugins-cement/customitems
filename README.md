@@ -14,7 +14,7 @@ CustomItems is a shared LabAPI helper library for SCP: Secret Laboratory item pl
 
 ### What It Provides
 
-- `ItemRegistry<TKind>`: a lightweight serial-number registry that maps vanilla item or pickup serials to a plugin-owned enum. Use it to answer "is this vanilla item one of my custom items?" inside item, pickup, damage, and use-event handlers.
+- `ItemRegistry<TKind>`: a lightweight serial-number registry that maps vanilla item or pickup serials to a plugin-owned enum. API 2 adds an attributable lifecycle contract for grant → track → transfer/drop → destroy/untrack while retaining every API 1 method signature.
 - `HeldMeshManager`: lifecycle management for camera-tracked first-person custom meshes. It can show a mesh over the native viewmodel or hide the native viewmodel and replace it.
 - `HeldMeshSpec`, `HeldLightSpec`, and `MeshPrimitive`: neutral data objects for describing AdminToy primitive meshes and optional pulsing core lights. A `MeshPrimitive` may name another primitive as its `ParentName`, which spawns it as a CHILD of that primitive with its authored local pose. That is what makes SHEAR RIGS possible: an exact parallelogram needs a non-uniformly scaled (usually invisible) parent plus a rotated child, which no single AdminToy can express, because pos+rot+scale composes to R*S and never shear. Parented primitives are left out of the mesh-centre bounding box, since their coordinates are in the parent's frame.
 - `HeldVisualMode`: the display mode for held meshes: `None`, `Overlay`, or `HideAndReplace`.
@@ -68,11 +68,26 @@ private enum SpecialItemKind
 private readonly ItemRegistry<SpecialItemKind> _items = new();
 ```
 
-Mark the serial when your plugin grants, spawns, or identifies a custom item:
+Mark the serial when your plugin grants, spawns, or identifies a custom item. The API 1 call remains supported:
 
 ```csharp
 _items.Mark(item, SpecialItemKind.AnchorTool);
 ```
+
+For lifecycle diagnostics, use the API 2 methods and supply a short source name. `TrackGranted` emits
+`Grant` then `Track`; transfer and drop preserve the serial identity; `Destroy` emits `Destroy` then
+`Untrack`. Ordinary `Untrack` is for retirement/consumption where no world pickup was destroyed.
+
+```csharp
+_items.TrackGranted(item.Serial, SpecialItemKind.AnchorTool, player.UserId, "loadout");
+_items.Drop(item.Serial, player.UserId, "player-drop");
+_items.Transfer(item.Serial, newHolder.UserId, "pickup");
+_items.Destroy(item.Serial, "world-pickup-destroyed");
+```
+
+Set `TraceLifecycle = true` only for diagnostics; it emits one DEBUG line containing stage, serial, kind,
+from/to UserIds, and source. Structured consumers can subscribe to `LifecycleChanged` instead. The shared
+contract records identity and ownership—it deliberately does not impose gameplay transition validation.
 
 Gate event handlers by serial:
 
@@ -124,7 +139,7 @@ CustomItems 是一个用于 SCP: Secret Laboratory 物品插件的共享 LabAPI 
 
 ### 提供的功能
 
-- `ItemRegistry<TKind>`：轻量序列号注册表，把原版物品或拾取物的 serial 映射到插件自己的枚举。可在物品、拾取、伤害、使用等事件中判断“这个原版物品是不是我的自定义物品”。
+- `ItemRegistry<TKind>`：轻量序列号注册表，把原版物品或拾取物的 serial 映射到插件自己的枚举。API 2 新增可归因的“发放 → 追踪 → 转移/丢弃 → 销毁/取消追踪”生命周期契约，并保留全部 API 1 方法签名。
 - `HeldMeshManager`：管理跟随摄像机的第一人称自定义手持网格生命周期。可以把模型叠加在原版手持模型上，也可以隐藏原版手持模型并替换成自定义模型。
 - `HeldMeshSpec`、`HeldLightSpec`、`MeshPrimitive`：用于描述 AdminToy primitive 网格和可选脉冲核心光源的中立数据对象。`MeshPrimitive` 可通过 `ParentName` 指定同一网格中的另一个图元作为父级，从而以其原始局部姿态作为子对象生成。这正是**剪切装配**得以实现的前提：精确的平行四边形需要一个非等比缩放的（通常不可见的）父级加一个旋转的子级，而单个 AdminToy 无法表达——位置+旋转+缩放只能合成 R*S，永远不含剪切。带父级的图元不会参与网格包围盒中心的计算，因为其坐标位于父级坐标系中。
 - `HeldVisualMode`：手持模型显示模式：`None`、`Overlay`、`HideAndReplace`。
@@ -178,11 +193,22 @@ private enum SpecialItemKind
 private readonly ItemRegistry<SpecialItemKind> _items = new();
 ```
 
-当插件发放、生成或识别自定义物品时标记 serial：
+当插件发放、生成或识别自定义物品时标记 serial。API 1 调用仍然受支持：
 
 ```csharp
 _items.Mark(item, SpecialItemKind.AnchorTool);
 ```
+
+需要生命周期诊断时，使用 API 2 方法并传入简短来源名。`TrackGranted` 依次发出 `Grant` 与 `Track`；转移和丢弃保留同一 serial；`Destroy` 依次发出 `Destroy` 与 `Untrack`。没有世界拾取物销毁的退役/消耗路径使用普通 `Untrack`。
+
+```csharp
+_items.TrackGranted(item.Serial, SpecialItemKind.AnchorTool, player.UserId, "loadout");
+_items.Drop(item.Serial, player.UserId, "player-drop");
+_items.Transfer(item.Serial, newHolder.UserId, "pickup");
+_items.Destroy(item.Serial, "world-pickup-destroyed");
+```
+
+仅在诊断时启用 `TraceLifecycle = true`；每次转换会输出包含阶段、serial、kind、来源/目标 UserId 与来源名的 DEBUG 行。结构化诊断也可订阅 `LifecycleChanged`。共享契约只记录身份与持有者，不会额外施加游戏逻辑状态校验。
 
 在事件处理器中按 serial 过滤：
 
