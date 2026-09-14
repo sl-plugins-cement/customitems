@@ -50,6 +50,7 @@ public sealed class HeldMeshManager
         {
             if (!existing.IsDestroyed)
             {
+                existing.BindCurrentItem();
                 if (mode == HeldVisualMode.HideAndReplace)
                 {
                     ForceDeselect(player);
@@ -63,6 +64,14 @@ public sealed class HeldMeshManager
         }
 
         HeldMeshVisual visual = new(player, spec);
+        if (spec.PreserveAuthoredOrigin)
+        {
+            visual.CarrierRemoved += () =>
+            {
+                if (_visuals.TryGetValue(id, out HeldMeshVisual current) && ReferenceEquals(current, visual))
+                    Hide(player);
+            };
+        }
         if (visual.Spawn())
         {
             _visuals[id] = visual;

@@ -19,6 +19,8 @@ CustomItems is a shared LabAPI helper library for SCP: Secret Laboratory item pl
 - `HeldMeshSpec`, `HeldLightSpec`, and `MeshPrimitive`: neutral data objects for describing AdminToy primitive meshes and optional pulsing core lights. A `MeshPrimitive` may name another primitive as its `ParentName`, which spawns it as a CHILD of that primitive with its authored local pose. That is what makes SHEAR RIGS possible: an exact parallelogram needs a non-uniformly scaled (usually invisible) parent plus a rotated child, which no single AdminToy can express, because pos+rot+scale composes to R*S and never shear. Parented primitives are left out of the mesh-centre bounding box, since their coordinates are in the parent's frame.
 - `HeldVisualMode`: the display mode for held meshes: `None`, `Overlay`, or `HideAndReplace`.
 - `HeldMeshVisual`: the low-level spawned visual implementation. Most plugins should use `HeldMeshManager` rather than constructing this directly.
+- `HeldMeshWorldSpec` and `HeldMeshPresentation`: optional physical-size observer companions and plugin-owned FP/world audience callbacks. Set `preserveAuthoredOrigin` to keep a model's grip origin and apply its explicit root rotation. Existing constructors retain their previous defaults.
+- `PlayerModelAttachment`: an invisible neutral parent that cancels player scale before rotated model roots. The caller owns its update and cleanup; it creates no independent loop or event subscription.
 
 ### Installation
 
@@ -46,7 +48,7 @@ Deploy `CustomItems.dll` to the LabAPI global dependency folder so any plugin ca
 %APPDATA%\SCP Secret Laboratory\LabAPI\dependencies\global\CustomItems.dll
 ```
 
-This repository's shared `Deploy.targets` refreshes existing deployed copies after `dotnet build`. A first-time install still needs the DLL copied into `dependencies\global` once.
+Builds default to `DeployToLocalServer=false`. Copy the committed candidate DLL to the selected server's dependency folder and restart that server to load it. Plugins using the optional physical companion API must ship this updated library with their models; older API 2 DLLs do not contain these additive types.
 
 Plugins that depend on this library should reference `CustomItems.dll` at build time and be deployed normally under:
 
@@ -119,6 +121,15 @@ if (args.NewItem == null && _heldMesh.AbsorbForcedNone(args.Player))
 
 Call `Hide(player)` on real unequip, death, disconnect, or role change. Call `Clear()` on round reset and plugin disable.
 
+Canonical visuals (`PreserveAuthoredOrigin`) bind the exact selected native item before force-deselect.
+Removing that item, including `Player.ClearInventory`, destroys both held representations even when
+there is no further `ChangedItem` event. The manager also clears its visual and deselect bookkeeping.
+Direct `HeldMeshVisual` owners can use `CarrierRemoved` to clear their armed/channel state and call
+`BindCurrentItem()` when reusing a visual for a newly selected carrier. The subscription is released
+on every visual teardown; legacy specs keep their existing behavior. This uses the public
+`ItemBase.OnItemRemoved` event from `InventorySystem/Items/ItemBase.cs:OnDestroy`, also subscribed by
+the official LabAPI wrapper in `LabApi/Features/Wrappers/Items/Item.cs:Initialize`.
+
 ### Commands And Config
 
 CustomItems has no Remote Admin commands, player-console commands, Server-Specific Settings, or config file. Commands, permissions, localization, hints, and config remain the responsibility of the plugin that references this library.
@@ -128,7 +139,7 @@ CustomItems has no Remote Admin commands, player-console commands, Server-Specif
 - The library only supplies shared mechanics. It does not spawn or grant custom items by itself.
 - Held meshes are server-side AdminToy primitives and lights. Keep primitive counts modest and avoid repeatedly spawning or destroying meshes in high-frequency code.
 - `HideAndReplace` intentionally manipulates the current item to hide the native first-person viewmodel. Plugin code must absorb the manager's forced `ChangedItem(None)` event or it may incorrectly disarm the custom item.
-- Mesh cleanup is owned by the caller. Missing `Hide()` or `Clear()` calls can leave toys alive until the round or server cleans them up.
+- Callers still own unequip, reset and disable cleanup through `Hide()`/`Clear()`. Canonical models additionally bind their exact native carrier before deselection, so native inventory removal destroys the art even when the selected slot is already empty.
 - Client-side UI, inventory names, and native item icons are not changed by this library.
 
 ## Chinese
@@ -144,6 +155,8 @@ CustomItems 是一个用于 SCP: Secret Laboratory 物品插件的共享 LabAPI 
 - `HeldMeshSpec`、`HeldLightSpec`、`MeshPrimitive`：用于描述 AdminToy primitive 网格和可选脉冲核心光源的中立数据对象。`MeshPrimitive` 可通过 `ParentName` 指定同一网格中的另一个图元作为父级，从而以其原始局部姿态作为子对象生成。这正是**剪切装配**得以实现的前提：精确的平行四边形需要一个非等比缩放的（通常不可见的）父级加一个旋转的子级，而单个 AdminToy 无法表达——位置+旋转+缩放只能合成 R*S，永远不含剪切。带父级的图元不会参与网格包围盒中心的计算，因为其坐标位于父级坐标系中。
 - `HeldVisualMode`：手持模型显示模式：`None`、`Overlay`、`HideAndReplace`。
 - `HeldMeshVisual`：底层已生成视觉对象实现。大多数插件应使用 `HeldMeshManager`，不要直接构造它。
+- `HeldMeshWorldSpec` 与 `HeldMeshPresentation`：可选的实际尺寸他人持握模型，以及由插件管理的第一人称/世界模型可见性回调。设置 `preserveAuthoredOrigin` 可保留握点原点并应用明确的根节点旋转；现有构造函数维持原来的默认行为。
+- `PlayerModelAttachment`：不可见的中性父节点，在模型根节点旋转前抵消玩家缩放。更新与清理由调用方负责，不创建独立循环或事件订阅。
 
 ### 安装
 
@@ -171,7 +184,7 @@ dotnet build .\CustomItems.csproj -p:SCP_SL_MANAGED="D:\Servers\SCPSL\SCPSL_Data
 %APPDATA%\SCP Secret Laboratory\LabAPI\dependencies\global\CustomItems.dll
 ```
 
-本仓库的共享 `Deploy.targets` 会在 `dotnet build` 后刷新已经部署过的副本。第一次安装仍需要先把 DLL 手动放进 `dependencies\global`。
+构建默认使用 `DeployToLocalServer=false`。将已提交候选版本的 DLL 复制到指定服务器的依赖目录，然后重启该服务器加载。使用可选实体持握模型 API 的插件必须随模型一起部署更新后的库；旧 API 2 DLL 不包含这些新增类型。
 
 依赖此库的插件应在构建时引用 `CustomItems.dll`，并正常部署到：
 
@@ -240,6 +253,14 @@ if (args.NewItem == null && _heldMesh.AbsorbForcedNone(args.Player))
 
 真正卸下、死亡、断线或切换角色时调用 `Hide(player)`。回合重置和插件禁用时调用 `Clear()`。
 
+标准模型（`PreserveAuthoredOrigin`）在强制取消手持前绑定当前选中的原生物品实例。该物品被移除时，
+包括执行 `Player.ClearInventory`，即使没有再次触发 `ChangedItem`，两种手持外观也会销毁；管理器同时
+清除模型记录及强制取消手持标记。直接管理 `HeldMeshVisual` 的服务可订阅 `CarrierRemoved` 来清除武装
+或引导状态，并在复用模型显示新选中物品时调用 `BindCurrentItem()`。每次模型销毁都会取消事件订阅，
+旧规格保留原有行为。此实现使用 `InventorySystem/Items/ItemBase.cs:OnDestroy` 中的公开
+`ItemBase.OnItemRemoved` 事件；官方 LabAPI 也在 `LabApi/Features/Wrappers/Items/Item.cs:Initialize`
+中订阅该事件维护物品包装器。
+
 ### 命令与配置
 
 CustomItems 没有 Remote Admin 命令、玩家控制台命令、Server-Specific Settings 或配置文件。命令、权限、本地化、提示和配置都由引用此库的具体插件负责。
@@ -249,5 +270,5 @@ CustomItems 没有 Remote Admin 命令、玩家控制台命令、Server-Specific
 - 本库只提供共享机制，本身不会生成或发放自定义物品。
 - 手持网格使用服务端 AdminToy primitives 和 light。primitive 数量应保持适中，避免在高频逻辑中反复生成或销毁模型。
 - `HideAndReplace` 会刻意修改当前物品来隐藏原版第一人称模型。插件代码必须吸收管理器触发的 `ChangedItem(None)`，否则可能误判为玩家真正卸下了自定义物品。
-- 网格清理由调用方负责。漏掉 `Hide()` 或 `Clear()` 可能导致 toys 一直存在，直到回合或服务器清理。
+- 调用方仍需通过 `Hide()`/`Clear()` 处理卸下、重置与禁用。标准模型还会在取消选中前绑定准确的原生承载物，因此即使当前栏位已为空，原生背包移除事件也会销毁附加模型。
 - 本库不会修改客户端 UI、背包物品名称或原版物品图标。

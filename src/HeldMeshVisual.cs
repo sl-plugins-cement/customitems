@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using InventorySystem.Items;
 using LabApi.Features.Wrappers;
 using MEC;
 using UnityEngine;
@@ -29,6 +30,8 @@ public sealed class HeldMeshVisual
     private LightSourceToy? _light;
     private CoroutineHandle _animate;
     private bool _destroyed;
+    private ItemBase? _carrier;
+    private bool _observingCarrier;
 
     public HeldMeshVisual(Player player, HeldMeshSpec spec)
     {
@@ -38,6 +41,32 @@ public sealed class HeldMeshVisual
 
     public bool IsDestroyed => _destroyed || (_attachment != null && _attachment.IsDestroyed) ||
         ((_root == null || _root.IsDestroyed) && (_worldRoot == null || _worldRoot.IsDestroyed));
+
+    /// <summary>Raised when the exact native carrier bound to a canonical visual is removed.
+    /// Owners may clear armed/channel state; the visual always destroys itself afterward.</summary>
+    public event Action? CarrierRemoved;
+
+    /// <summary>Refreshes a canonical visual's exact native carrier before force-deselecting it.
+    /// A null selection retains the existing binding; legacy noncanonical visuals are unchanged.</summary>
+    public void BindCurrentItem()
+    {
+        if (_destroyed || !_spec.PreserveAuthoredOrigin || _player.IsDestroyed) return;
+        ItemBase? current = _player.CurrentItem?.Base;
+        if (current == null) return;
+        _carrier = current;
+        if (_observingCarrier) return;
+        ItemBase.OnItemRemoved += OnCarrierRemoved;
+        _observingCarrier = true;
+    }
+
+    private void OnCarrierRemoved(ItemBase item)
+    {
+        if (_destroyed || !ReferenceEquals(_carrier, item)) return;
+        try { CarrierRemoved?.Invoke(); }
+        catch (Exception exception)
+        { Logger.Warn($"[CustomItems:HeldMesh] Carrier cleanup failed: {exception.GetBaseException().Message}"); }
+        finally { Destroy(); }
+    }
 
     /// <summary>Spawns the root, mesh children, and optional light, then starts the per-frame tracking coroutine.</summary>
     public bool Spawn()
@@ -54,6 +83,9 @@ public sealed class HeldMeshVisual
         }
         try
         {
+            // Native inventory clearing can remove a force-deselected item without another
+            // ChangedItem event. ItemBase.OnItemRemoved also drives LabAPI's item-wrapper lifecycle.
+            BindCurrentItem();
             _presentation = _spec.PresentationFactory?.Invoke(_player);
             if (_presentation != null && !_presentation.ShowFirstPerson && (!_presentation.ShowWorld || _spec.World == null))
             { Destroy(); return false; }
@@ -351,6 +383,13 @@ public sealed class HeldMeshVisual
         }
 
         _destroyed = true;
+        if (_observingCarrier)
+        {
+            ItemBase.OnItemRemoved -= OnCarrierRemoved;
+            _observingCarrier = false;
+        }
+        _carrier = null;
+        CarrierRemoved = null;
         if (_animate.IsRunning)
         {
             Timing.KillCoroutines(_animate);
