@@ -276,7 +276,7 @@ public sealed class HeldMeshVisual
             _attachment?.UpdateScale();
             if (_attachment != null && _attachment.IsDestroyed)
             { Destroy(); yield break; }
-            if (_player.IsDestroyed || !_player.IsAlive)
+            if (_player.IsDestroyed || (_spec.PreserveAuthoredOrigin && !_player.IsAlive))
             {
                 Destroy();
                 yield break;
