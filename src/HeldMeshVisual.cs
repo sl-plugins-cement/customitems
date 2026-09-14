@@ -23,6 +23,9 @@ public sealed class HeldMeshVisual
     private readonly HeldMeshSpec _spec;
     private readonly List<AdminToy> _toys = new();
     private PrimitiveObjectToy? _root;
+    private PrimitiveObjectToy? _worldRoot;
+    private HeldMeshPresentation? _presentation;
+    private PlayerModelAttachment? _attachment;
     private LightSourceToy? _light;
     private CoroutineHandle _animate;
     private bool _destroyed;
@@ -33,38 +36,82 @@ public sealed class HeldMeshVisual
         _spec = spec;
     }
 
-    public bool IsDestroyed => _destroyed || _root == null || _root.IsDestroyed;
+    public bool IsDestroyed => _destroyed || (_attachment != null && _attachment.IsDestroyed) ||
+        ((_root == null || _root.IsDestroyed) && (_worldRoot == null || _worldRoot.IsDestroyed));
 
     /// <summary>Spawns the root, mesh children, and optional light, then starts the per-frame tracking coroutine.</summary>
     public bool Spawn()
     {
-        TryComputeLocalPose(out Vector3 initialPos, out Quaternion initialRot);
+        if (_destroyed || _player == null || _player.IsDestroyed || _player.ReferenceHub == null)
+            return false;
+        if (_spec.PreserveAuthoredOrigin)
+        {
+            bool hasGeometry = false;
+            foreach (MeshPrimitive primitive in _spec.Primitives)
+                if (!primitive.IsMarker && (primitive.Flags & PrimitiveFlags.Visible) != 0)
+                { hasGeometry = true; break; }
+            if (!hasGeometry) return false;
+        }
         try
         {
-            _root = PrimitiveObjectToy.Create(
-                initialPos,
-                initialRot,
-                Vector3.one * Mathf.Max(0.02f, _spec.Scale),
-                _player.ReferenceHub.transform,
-                networkSpawn: false);
-            _root.Type = PrimitiveType.Cube;
-            _root.Flags = PrimitiveFlags.None;
-            _root.Color = new Color(0f, 0f, 0f, 0f);
-            _root.IsStatic = false;
-            _root.Base.NetworkMovementSmoothing = RawMovementSmoothing;
-            _root.SyncInterval = 0f;
-            _root.Spawn();
-            _toys.Add(_root);
+            _presentation = _spec.PresentationFactory?.Invoke(_player);
+            if (_presentation != null && !_presentation.ShowFirstPerson && (!_presentation.ShowWorld || _spec.World == null))
+            { Destroy(); return false; }
+            if (_spec.PreserveAuthoredOrigin)
+            {
+                _attachment = new PlayerModelAttachment(_player);
+                if (!_attachment.Spawn()) { Destroy(); return false; }
+            }
+            if (_presentation == null || _presentation.ShowFirstPerson)
+                _root = SpawnRoot(isWorld: false);
+            if (_spec.World != null && (_presentation == null || _presentation.ShowWorld))
+                _worldRoot = SpawnRoot(isWorld: true);
+            if (IsDestroyed)
+            {
+                Destroy();
+                return false;
+            }
+
+            Vector3 meshCenter = _spec.PreserveAuthoredOrigin ? Vector3.zero : ComputeMeshCenter();
+            if (_root != null) SpawnGeometry(_root.Transform, meshCenter, isWorld: false);
+            if (_worldRoot != null) SpawnGeometry(_worldRoot.Transform, meshCenter, isWorld: true);
+            if (_spec.Light != null && _root != null && !IsDestroyed)
+                SpawnLight(_spec.Light, meshCenter);
+            _animate = Timing.RunCoroutine(Animate());
+            return true;
         }
         catch (Exception exception)
         {
-            Logger.Warn($"[CustomItems:HeldMesh] Root failed: {exception.GetBaseException().Message}");
+            Logger.Warn($"[CustomItems:HeldMesh] Spawn failed: {exception.GetBaseException().Message}");
+            Destroy();
             return false;
         }
+    }
 
-        // Centre the mesh on its bounding box so the camera offset positions the device's middle.
-        Vector3 meshCenter = ComputeMeshCenter();
+    private PrimitiveObjectToy SpawnRoot(bool isWorld)
+    {
+        TryComputeLocalPose(out Vector3 initialPos, out Quaternion initialRot);
+        if (isWorld) TryComputeWorldLocalPose(out initialPos, out initialRot);
+        PrimitiveObjectToy root = PrimitiveObjectToy.Create(
+                initialPos,
+                initialRot,
+                Vector3.one * Mathf.Max(0.02f, isWorld ? _spec.World!.Scale : _spec.Scale),
+                _attachment?.Transform ?? _player.ReferenceHub.transform,
+                networkSpawn: false);
+        _toys.Add(root);
+        root.Type = PrimitiveType.Cube;
+        root.Flags = PrimitiveFlags.None;
+        root.Color = new Color(0f, 0f, 0f, 0f);
+        root.IsStatic = false;
+        root.Base.NetworkMovementSmoothing = RawMovementSmoothing;
+        root.SyncInterval = isWorld ? 0.05f : 0f;
+        _presentation?.BeforeSpawn(root, isWorld);
+        root.Spawn();
+        return root;
+    }
 
+    private void SpawnGeometry(Transform root, Vector3 meshCenter, bool isWorld)
+    {
         // Two passes so shear rigs work: a primitive naming a ParentName is spawned UNDER that
         // primitive's transform, with its authored local pose (no mesh-centre offset — that only
         // applies to mesh-root children). Pending children are re-swept until a pass resolves nothing,
@@ -89,7 +136,7 @@ public sealed class HeldMeshVisual
                 continue;
             }
 
-            SpawnMeshPrimitive(primitive, primitive.Position - meshCenter, _root!.Transform, spawnedByName);
+            SpawnMeshPrimitive(primitive, primitive.Position - meshCenter, root, spawnedByName, isWorld);
         }
 
         while (pending.Count > 0 && !IsDestroyed)
@@ -104,7 +151,7 @@ public sealed class HeldMeshVisual
                 }
 
                 pending.RemoveAt(i);
-                SpawnMeshPrimitive(child, child.Position, parent, spawnedByName);
+                SpawnMeshPrimitive(child, child.Position, parent, spawnedByName, isWorld);
             }
 
             if (pending.Count == before)
@@ -118,13 +165,6 @@ public sealed class HeldMeshVisual
             }
         }
 
-        if (_spec.Light != null && !IsDestroyed)
-        {
-            SpawnLight(_spec.Light, meshCenter);
-        }
-
-        _animate = Timing.RunCoroutine(Animate());
-        return true;
     }
 
     /// <summary>Spawns one mesh primitive under <paramref name="parent"/> and records it by name so later
@@ -133,7 +173,8 @@ public sealed class HeldMeshVisual
         MeshPrimitive primitive,
         Vector3 localPosition,
         Transform parent,
-        Dictionary<string, Transform> spawnedByName)
+        Dictionary<string, Transform> spawnedByName,
+        bool isWorld)
     {
         try
         {
@@ -143,12 +184,14 @@ public sealed class HeldMeshVisual
                 primitive.Scale,
                 parent,
                 networkSpawn: false);
+            _toys.Add(toy);
             toy.Type = primitive.Type;
-            toy.Flags = primitive.Flags;
+            // Authored item presentations must never introduce gameplay collision.
+            toy.Flags = _spec.PreserveAuthoredOrigin ? primitive.Flags & ~PrimitiveFlags.Collidable : primitive.Flags;
             toy.Color = primitive.Color;
             toy.IsStatic = true;
+            _presentation?.BeforeSpawn(toy, isWorld);
             toy.Spawn();
-            _toys.Add(toy);
             if (!string.IsNullOrEmpty(primitive.Name))
             {
                 spawnedByName[primitive.Name] = toy.Transform;
@@ -178,6 +221,7 @@ public sealed class HeldMeshVisual
         try
         {
             _light = LightSourceToy.Create(localPosition, Quaternion.identity, _root!.Transform, networkSpawn: false);
+            _toys.Add(_light);
             _light.Type = LightType.Point;
             _light.Intensity = lightSpec.BaseIntensity;
             _light.Range = lightSpec.Range;
@@ -186,8 +230,8 @@ public sealed class HeldMeshVisual
             _light.IsStatic = false;
             _light.Base.NetworkMovementSmoothing = RawMovementSmoothing;
             _light.SyncInterval = 0f;
+            _presentation?.BeforeSpawn(_light, false);
             _light.Spawn();
-            _toys.Add(_light);
         }
         catch (Exception exception)
         {
@@ -229,10 +273,21 @@ public sealed class HeldMeshVisual
         float startAt = Time.timeSinceLevelLoad;
         while (!IsDestroyed)
         {
+            _attachment?.UpdateScale();
+            if (_attachment != null && _attachment.IsDestroyed)
+            { Destroy(); yield break; }
+            if (_player.IsDestroyed || !_player.IsAlive)
+            {
+                Destroy();
+                yield break;
+            }
             if (_root != null && !_root.IsDestroyed && TryComputeLocalPose(out Vector3 localPos, out Quaternion localRot))
             {
                 _root.Transform.SetLocalPositionAndRotation(localPos, localRot);
             }
+
+            if (_worldRoot != null && !_worldRoot.IsDestroyed && TryComputeWorldLocalPose(out Vector3 worldPos, out Quaternion worldRot))
+                _worldRoot.Transform.SetLocalPositionAndRotation(worldPos, worldRot);
 
             if (lightSpec != null && _light != null && !_light.IsDestroyed)
             {
@@ -242,6 +297,7 @@ public sealed class HeldMeshVisual
 
             yield return Timing.WaitForOneFrame;
         }
+        Destroy();
     }
 
     /// <summary>
@@ -259,7 +315,7 @@ public sealed class HeldMeshVisual
         }
 
         Transform? camera = _player.Camera;
-        Transform? body = _player.ReferenceHub != null ? _player.ReferenceHub.transform : null;
+        Transform? body = _attachment?.Transform ?? (_player.ReferenceHub != null ? _player.ReferenceHub.transform : null);
         if (camera == null || body == null)
         {
             return false;
@@ -267,7 +323,23 @@ public sealed class HeldMeshVisual
 
         Vector3 worldPos = camera.position + (camera.rotation * _spec.CameraOffset);
         localPos = body.InverseTransformPoint(worldPos);
-        localRot = Quaternion.Inverse(body.rotation) * camera.rotation;
+        localRot = Quaternion.Inverse(body.rotation) * camera.rotation * Quaternion.Euler(_spec.RotationEuler);
+        return true;
+    }
+
+    private bool TryComputeWorldLocalPose(out Vector3 localPos, out Quaternion localRot)
+    {
+        HeldMeshWorldSpec? world = _spec.World;
+        localPos = world?.BodyOffset ?? Vector3.zero;
+        localRot = Quaternion.Euler(world?.RotationEuler ?? Vector3.zero);
+        if (world == null || _player.IsDestroyed || _player.ReferenceHub == null) return false;
+        Pose? pose = world.PoseResolver?.Invoke(_player);
+        if (pose.HasValue)
+        {
+            Transform body = _attachment?.Transform ?? _player.ReferenceHub.transform;
+            localPos = body.InverseTransformPoint(pose.Value.position);
+            localRot = Quaternion.Inverse(body.rotation) * pose.Value.rotation * Quaternion.Euler(world.RotationEuler);
+        }
         return true;
     }
 
@@ -284,8 +356,10 @@ public sealed class HeldMeshVisual
             Timing.KillCoroutines(_animate);
         }
 
-        foreach (AdminToy toy in _toys)
+        // Children must disappear before their network parents.
+        for (int i = _toys.Count - 1; i >= 0; i--)
         {
+            AdminToy toy = _toys[i];
             try
             {
                 if (toy != null && !toy.IsDestroyed)
@@ -301,6 +375,13 @@ public sealed class HeldMeshVisual
 
         _toys.Clear();
         _root = null;
+        _worldRoot = null;
         _light = null;
+        _attachment?.Destroy();
+        _attachment = null;
+        try { _presentation?.OnDestroy?.Invoke(); }
+        catch (Exception exception)
+        { Logger.Warn($"[CustomItems:HeldMesh] Presentation cleanup failed: {exception.GetBaseException().Message}"); }
+        _presentation = null;
     }
 }

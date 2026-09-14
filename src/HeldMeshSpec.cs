@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using LabApi.Features.Wrappers;
 using UnityEngine;
 
 namespace CustomItems;
@@ -11,11 +13,23 @@ namespace CustomItems;
 public sealed class HeldMeshSpec
 {
     public HeldMeshSpec(IReadOnlyList<MeshPrimitive> primitives, Vector3 cameraOffset, float scale, HeldLightSpec? light = null)
+        : this(primitives, cameraOffset, scale, false, light)
+    {
+    }
+
+    /// <summary>Opt-in authored grip origin and separate observer presentation. The original constructor remains binary-compatible.</summary>
+    public HeldMeshSpec(IReadOnlyList<MeshPrimitive> primitives, Vector3 cameraOffset, float scale,
+        bool preserveAuthoredOrigin, HeldLightSpec? light = null, Vector3? rotationEuler = null,
+        HeldMeshWorldSpec? world = null, Func<Player, HeldMeshPresentation>? presentationFactory = null)
     {
         Primitives = primitives;
         CameraOffset = cameraOffset;
         Scale = scale;
         Light = light;
+        PreserveAuthoredOrigin = preserveAuthoredOrigin;
+        RotationEuler = rotationEuler ?? Vector3.zero;
+        World = world;
+        PresentationFactory = presentationFactory;
     }
 
     /// <summary>The mesh primitives (mesh-local coords; markers are skipped). See <see cref="MeshPrimitive"/>.</summary>
@@ -29,6 +43,53 @@ public sealed class HeldMeshSpec
 
     /// <summary>Optional pulsing point light at the mesh core; null for no light.</summary>
     public HeldLightSpec? Light { get; }
+
+    public bool PreserveAuthoredOrigin { get; }
+    public Vector3 RotationEuler { get; }
+    public HeldMeshWorldSpec? World { get; }
+    public Func<Player, HeldMeshPresentation>? PresentationFactory { get; }
+}
+
+/// <summary>A full-size observer model using the same mesh and authored grip as the first-person model.</summary>
+public sealed class HeldMeshWorldSpec
+{
+    public HeldMeshWorldSpec(Vector3 bodyOffset, float scale = 1f, Vector3? rotationEuler = null,
+        Func<Player, Pose?>? poseResolver = null)
+    {
+        BodyOffset = bodyOffset;
+        Scale = scale;
+        RotationEuler = rotationEuler ?? Vector3.zero;
+        PoseResolver = poseResolver;
+    }
+
+    public Vector3 BodyOffset { get; }
+    public float Scale { get; }
+    public Vector3 RotationEuler { get; }
+    /// <summary>Optional native attachment world pose. Null result uses the body-local fallback.</summary>
+    public Func<Player, Pose?>? PoseResolver { get; }
+}
+
+/// <summary>Per-visual visibility ownership, supplied by the consuming plugin before any network spawn.</summary>
+public sealed class HeldMeshPresentation
+{
+    public HeldMeshPresentation(bool showFirstPerson, Action<AdminToy, bool> beforeSpawn, Action? onDestroy = null,
+        bool showWorld = true, Func<float>? worldAlpha = null)
+    {
+        ShowFirstPerson = showFirstPerson;
+        BeforeSpawn = beforeSpawn;
+        OnDestroy = onDestroy;
+        ShowWorld = showWorld;
+        _worldAlpha = worldAlpha;
+    }
+
+    public bool ShowFirstPerson { get; }
+    public bool ShowWorld { get; }
+    private readonly Func<float>? _worldAlpha;
+    /// <summary>Observer opacity for bespoke animated primitives whose colour changes after spawning.</summary>
+    public float WorldAlpha => _worldAlpha?.Invoke() ?? 1f;
+    /// <summary>The boolean distinguishes the observer mesh from the owner's first-person mesh.</summary>
+    public Action<AdminToy, bool> BeforeSpawn { get; }
+    public Action? OnDestroy { get; }
 }
 
 /// <summary>A pulsing point light placed at the held mesh's core.</summary>

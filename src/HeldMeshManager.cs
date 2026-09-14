@@ -58,6 +58,7 @@ public sealed class HeldMeshManager
                 return;
             }
 
+            existing.Destroy();
             _visuals.Remove(id);
         }
 
@@ -65,6 +66,11 @@ public sealed class HeldMeshManager
         if (visual.Spawn())
         {
             _visuals[id] = visual;
+        }
+        else if (spec.PreserveAuthoredOrigin)
+        {
+            // A missing canonical asset must not hide the only usable/native presentation.
+            return;
         }
 
         if (mode == HeldVisualMode.HideAndReplace)
