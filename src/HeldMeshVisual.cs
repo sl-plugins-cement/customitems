@@ -40,6 +40,9 @@ public sealed class HeldMeshVisual
     }
 
     public bool IsDestroyed => _destroyed || (_attachment != null && _attachment.IsDestroyed) ||
+        (_spec.PreserveAuthoredOrigin && _presentation != null &&
+            ((_presentation.ShowFirstPerson && (_root == null || _root.IsDestroyed)) ||
+             (_spec.World != null && _presentation.ShowWorld && (_worldRoot == null || _worldRoot.IsDestroyed)))) ||
         ((_root == null || _root.IsDestroyed) && (_worldRoot == null || _worldRoot.IsDestroyed));
 
     /// <summary>Raised when the exact native carrier bound to a canonical visual is removed.
