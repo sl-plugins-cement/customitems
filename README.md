@@ -1,5 +1,10 @@
 # CustomItems
 
+[中文协作者入门](docs/入门.md) · [Cement 完整教学示例](https://github.com/sl-plugins-cement/scpsl-plugin-examples)
+
+首次参与请先阅读中文入门文档。以下保留现有双语 API 参考。
+
+
 <p align="center">
   <a href="#english"><strong>English</strong></a>
   <span> | </span>
