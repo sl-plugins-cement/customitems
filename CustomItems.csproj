@@ -3,15 +3,16 @@
     <TargetFramework>net48</TargetFramework>
     <OutputType>Library</OutputType>
     <LangVersion>latest</LangVersion>
-    <AssemblyVersion>2.0.0.0</AssemblyVersion>
-    <FileVersion>2.0.0.0</FileVersion>
-    <Version>2.0.0</Version>
+    <AssemblyVersion>3.0.0.0</AssemblyVersion>
+    <FileVersion>3.0.0.0</FileVersion>
+    <Version>3.0.0</Version>
     <Nullable>enable</Nullable>
     <AssemblyName>CustomItems</AssemblyName>
     <RootNamespace>CustomItems</RootNamespace>
-    <!-- Shared LIBRARY (not a LabAPI plugin): deploy to %APPDATA%\SCP Secret Laboratory\LabAPI\dependencies\global
-         alongside ServerKeybinds.dll. Holds the generic tracked-item registry + the reusable held custom-mesh
-         helper. ServerKeybinds is a hard dependency so all custom-item settings use its shared registry. -->
+    <!-- Source-shared helper LIBRARY (not a LabAPI plugin and not a deployed DLL). Holds the generic
+         tracked-item registry + the reusable held custom-mesh helper; it keeps no process-wide state, so
+         consumers compile src\**\*.cs into their own plugin assembly via a CustomItemsSource MSBuild
+         property (see README.md). This csproj exists so the library still builds and is checked standalone. -->
     <SCP_SL_MANAGED Condition="'$(SCP_SL_MANAGED)' == ''">C:\Program Files (x86)\Steam\steamapps\common\SCP Secret Laboratory Dedicated Server\SCPSL_Data\Managed</SCP_SL_MANAGED>
   </PropertyGroup>
 
@@ -24,7 +25,6 @@
     <Reference Include="Assembly-CSharp-firstpass" HintPath="$(SCP_SL_MANAGED)\Assembly-CSharp-firstpass.dll" Private="false" />
     <Reference Include="LabApi" HintPath="$(SCP_SL_MANAGED)\LabApi.dll" Private="false" />
     <Reference Include="Mirror" HintPath="$(SCP_SL_MANAGED)\Mirror.dll" Private="false" />
-    <Reference Include="ServerKeybinds" HintPath="$(APPDATA)\SCP Secret Laboratory\LabAPI\dependencies\global\ServerKeybinds.dll" Private="false" />
     <Reference Include="UnityEngine" HintPath="$(SCP_SL_MANAGED)\UnityEngine.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(SCP_SL_MANAGED)\UnityEngine.CoreModule.dll" Private="false" />
   </ItemGroup>

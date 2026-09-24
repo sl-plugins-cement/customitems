@@ -8,9 +8,7 @@
 
 ## English
 
-CustomItems is a shared LabAPI helper library for SCP: Secret Laboratory item plugins. It is not a standalone LabAPI plugin: it does not register commands, create config files, show player text, or run by itself. Item plugins reference this DLL to reuse common custom-item mechanics instead of copying the same tracking and held-model code into every plugin.
-
-`ServerKeybinds.dll` is a hard runtime dependency. Any custom-item plugin that needs Server-Specific Settings or keybinds must register them through that shared registry; it must not mutate the game's global settings array directly.
+CustomItems is a source-shared LabAPI helper library for SCP: Secret Laboratory item plugins. It is not a standalone LabAPI plugin: it does not register commands, create config files, show player text, or run by itself. Item plugins compile its sources into their own plugin assembly to reuse common custom-item mechanics instead of copying the same tracking and held-model code into every plugin. The library holds no process-wide state (`ItemRegistry` and `HeldMeshManager` are per-plugin instances), so each consumer carrying its own copy is the intended layout. It has no dependency on any other plugin or shared DLL.
 
 ### What It Provides
 
@@ -24,7 +22,32 @@ CustomItems is a shared LabAPI helper library for SCP: Secret Laboratory item pl
 
 ### Installation
 
-Build the library:
+CustomItems is consumed as source. Consumers do not deploy `CustomItems.dll`; they compile `src\**\*.cs` into their own plugin assembly by adding this to their csproj:
+
+```xml
+<PropertyGroup>
+  <!-- CustomItems is compiled from source. Default: the sibling metarepo checkout; a task worktree under
+       .worktrees/<task>/<repo> resolves three levels up; anything else passes -p:CustomItemsSource=<path>. -->
+  <CustomItemsSource Condition="'$(CustomItemsSource)' == '' And Exists('$(MSBuildThisFileDirectory)..\CustomItems\src')">$(MSBuildThisFileDirectory)..\CustomItems\src</CustomItemsSource>
+  <CustomItemsSource Condition="'$(CustomItemsSource)' == '' And Exists('$(MSBuildThisFileDirectory)..\..\..\CustomItems\src')">$(MSBuildThisFileDirectory)..\..\..\CustomItems\src</CustomItemsSource>
+</PropertyGroup>
+<ItemGroup>
+  <Compile Include="$(CustomItemsSource)\**\*.cs" Link="CustomItems\%(RecursiveDir)%(Filename)%(Extension)" />
+</ItemGroup>
+<Target Name="RequireCustomItemsSource" BeforeTargets="BeforeBuild" Condition="!Exists('$(CustomItemsSource)')">
+  <Error Text="CustomItems sources not found. Pass -p:CustomItemsSource=&lt;path to CustomItems\src&gt;." />
+</Target>
+```
+
+The consuming project must already reference the SCP:SL managed assemblies these sources use (`Assembly-CSharp`, `Assembly-CSharp-firstpass`, `LabApi`, `Mirror`, `UnityEngine`, `UnityEngine.CoreModule`); a normal LabAPI plugin project does. The consuming plugin is then deployed normally under:
+
+```text
+%APPDATA%\SCP Secret Laboratory\LabAPI\plugins\<active port>\
+```
+
+An old `CustomItems.dll` left in a LabAPI dependencies folder is harmless but no longer needed.
+
+`CustomItems.csproj` exists so the library still builds and is checked standalone:
 
 ```powershell
 dotnet build .\CustomItems.csproj
@@ -40,20 +63,6 @@ Override that location when needed:
 
 ```powershell
 dotnet build .\CustomItems.csproj -p:SCP_SL_MANAGED="D:\Servers\SCPSL\SCPSL_Data\Managed"
-```
-
-Deploy `CustomItems.dll` to the LabAPI global dependency folder so any plugin can load it:
-
-```text
-%APPDATA%\SCP Secret Laboratory\LabAPI\dependencies\global\CustomItems.dll
-```
-
-Builds default to `DeployToLocalServer=false`. Copy the committed candidate DLL to the selected server's dependency folder and restart that server to load it. Plugins using the optional physical companion API must ship this updated library with their models; older API 2 DLLs do not contain these additive types.
-
-Plugins that depend on this library should reference `CustomItems.dll` at build time and be deployed normally under:
-
-```text
-%APPDATA%\SCP Secret Laboratory\LabAPI\plugins\<active port>\
 ```
 
 ### Usage Pattern
@@ -144,9 +153,7 @@ CustomItems has no Remote Admin commands, player-console commands, Server-Specif
 
 ## Chinese
 
-CustomItems 是一个用于 SCP: Secret Laboratory 物品插件的共享 LabAPI 辅助库。它不是独立的 LabAPI 插件：不会注册命令、不会生成配置文件、不会显示玩家文本，也不会单独运行。物品插件引用这个 DLL，用来复用常见的自定义物品追踪和手持模型逻辑，避免每个插件都复制一份实现。
-
-`ServerKeybinds.dll` 是硬性运行时依赖。任何需要服务器专属设置或按键绑定的自定义物品插件都必须通过该共享注册表进行注册，不得直接修改游戏的全局设置数组。
+CustomItems 是一个以源码形式共享的 SCP: Secret Laboratory 物品插件 LabAPI 辅助库。它不是独立的 LabAPI 插件：不会注册命令、不会生成配置文件、不会显示玩家文本，也不会单独运行。物品插件把它的源码编译进自己的插件程序集，用来复用常见的自定义物品追踪和手持模型逻辑，避免每个插件都复制一份实现。本库不持有任何进程级状态（`ItemRegistry` 与 `HeldMeshManager` 都是插件各自的实例），因此每个消费者自带一份副本正是预期布局。它不依赖任何其他插件或共享 DLL。
 
 ### 提供的功能
 
@@ -160,7 +167,32 @@ CustomItems 是一个用于 SCP: Secret Laboratory 物品插件的共享 LabAPI 
 
 ### 安装
 
-构建库：
+CustomItems 以源码形式使用。消费插件不部署 `CustomItems.dll`，而是在自己的 csproj 中加入以下内容，把 `src\**\*.cs` 编译进自己的插件程序集：
+
+```xml
+<PropertyGroup>
+  <!-- CustomItems is compiled from source. Default: the sibling metarepo checkout; a task worktree under
+       .worktrees/<task>/<repo> resolves three levels up; anything else passes -p:CustomItemsSource=<path>. -->
+  <CustomItemsSource Condition="'$(CustomItemsSource)' == '' And Exists('$(MSBuildThisFileDirectory)..\CustomItems\src')">$(MSBuildThisFileDirectory)..\CustomItems\src</CustomItemsSource>
+  <CustomItemsSource Condition="'$(CustomItemsSource)' == '' And Exists('$(MSBuildThisFileDirectory)..\..\..\CustomItems\src')">$(MSBuildThisFileDirectory)..\..\..\CustomItems\src</CustomItemsSource>
+</PropertyGroup>
+<ItemGroup>
+  <Compile Include="$(CustomItemsSource)\**\*.cs" Link="CustomItems\%(RecursiveDir)%(Filename)%(Extension)" />
+</ItemGroup>
+<Target Name="RequireCustomItemsSource" BeforeTargets="BeforeBuild" Condition="!Exists('$(CustomItemsSource)')">
+  <Error Text="CustomItems sources not found. Pass -p:CustomItemsSource=&lt;path to CustomItems\src&gt;." />
+</Target>
+```
+
+消费项目需要已经引用这些源码用到的 SCP:SL 托管程序集（`Assembly-CSharp`、`Assembly-CSharp-firstpass`、`LabApi`、`Mirror`、`UnityEngine`、`UnityEngine.CoreModule`）；普通的 LabAPI 插件项目都已具备。随后消费插件正常部署到：
+
+```text
+%APPDATA%\SCP Secret Laboratory\LabAPI\plugins\<active port>\
+```
+
+LabAPI 依赖目录中遗留的旧 `CustomItems.dll` 无害，但已不再需要。
+
+`CustomItems.csproj` 的存在是为了让本库仍可独立构建和检查：
 
 ```powershell
 dotnet build .\CustomItems.csproj
@@ -176,20 +208,6 @@ C:\Program Files (x86)\Steam\steamapps\common\SCP Secret Laboratory Dedicated Se
 
 ```powershell
 dotnet build .\CustomItems.csproj -p:SCP_SL_MANAGED="D:\Servers\SCPSL\SCPSL_Data\Managed"
-```
-
-把 `CustomItems.dll` 部署到 LabAPI 全局依赖目录，使任意插件都可以加载它：
-
-```text
-%APPDATA%\SCP Secret Laboratory\LabAPI\dependencies\global\CustomItems.dll
-```
-
-构建默认使用 `DeployToLocalServer=false`。将已提交候选版本的 DLL 复制到指定服务器的依赖目录，然后重启该服务器加载。使用可选实体持握模型 API 的插件必须随模型一起部署更新后的库；旧 API 2 DLL 不包含这些新增类型。
-
-依赖此库的插件应在构建时引用 `CustomItems.dll`，并正常部署到：
-
-```text
-%APPDATA%\SCP Secret Laboratory\LabAPI\plugins\<active port>\
 ```
 
 ### 使用方式
